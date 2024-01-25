@@ -1,5 +1,7 @@
 import CZlib
 
+import struct Foundation.Date
+
 /// A type which deflates a stream of input data
 final class DeflateStream {
 
@@ -11,7 +13,7 @@ final class DeflateStream {
       &c,
       /* compressionLevel: */ Z_DEFAULT_COMPRESSION,
       /* method: */ Z_DEFLATED,
-      /* windowBits: */ 15 + 16,
+      /* windowBits: */ 15 + /* Offset specifying to use gzip format: */ 16,
       /* memLevel: */ 8,
       /* strategy: */ Z_DEFAULT_STRATEGY)
     guard result == Z_OK else {
@@ -34,6 +36,26 @@ final class DeflateStream {
       assertionFailure()
     default:
       /// This is an unexpected error code
+      fatalError()
+    }
+  }
+
+  /// Optionally modifies the gzip header.
+  /// Cannot be called after `deflate` is called.
+  func setHeader(
+    fileName: String? = nil,
+    modificationDate: Date? = nil
+  ) {
+    self.header = Header(
+      fileName: fileName,
+      modificationDate: modificationDate)
+    let result = deflateSetHeader(&c, &self.header.c)
+    switch result {
+    case Z_OK:
+      break
+    default:
+      /// This call should only fail if there is a misconfiguration.
+      /// We accept a potential crash here to simplify the API.
       fatalError()
     }
   }
@@ -135,7 +157,58 @@ final class DeflateStream {
   /// This only works because `DeflateStream` is a class
   private var c: z_stream
 
-  private static let emptyBuffer =
-    UnsafeMutableRawBufferPointer
+  /// A type representing a gzip header which manages the lifetime of constituent strings
+  private struct Header: ~Copyable {
+    init(
+      fileName: String? = nil,
+      modificationDate: Date? = nil
+    ) {
+      var c = gz_header()
+
+      if let fileName = fileName {
+        c.name = fileName.utf8CString.withUnsafeBytes { cString in
+          cString.withMemoryRebound(to: Bytef.self) { sourceBytefs in
+            let destinationBytefs: UnsafeMutablePointer<Bytef> = .allocate(
+              capacity: sourceBytefs.count)
+            destinationBytefs.initialize(from: sourceBytefs.baseAddress!, count: sourceBytefs.count)
+            return destinationBytefs
+          }
+        }
+      }
+
+      if let modificationDate = modificationDate {
+        c.time = .init(modificationDate.timeIntervalSince1970)
+      }
+
+      self.c = c
+    }
+    deinit {
+      if let name = c.name {
+        name.deallocate()
+      }
+    }
+
+    /// This value may be modified by `deflateSetHeader`
+    var c: gz_header
+  }
+
+  /// A value which can store the header struct needed by `deflateSetHeader`.
+  /// This value also manages the lifetime of any constituent strings.
+  /// We store this as part of the class since zlib does not give us any indication of when the value provided to `deflateSetHeader` is finished being used.
+  /// We do know that a subsequent call to `deflateSetHeader` will replace the previous header so we only need one such value to survive at a time.
+  private var header = Header()
+
+  private static let emptyBuffer: UnsafeMutableRawBufferPointer =
     .allocate(byteCount: 0, alignment: MemoryLayout<Bytef>.alignment)
+}
+
+extension String {
+  /// While zlib strings are expressed as non-const, they generally aren't modified.
+  /// Care should be taken when using this method to make sure that the buffer is not actually mutated.
+  func withBytefString(_ body: (UnsafeMutableBufferPointer<Bytef>) -> Void) {
+    utf8CString.withUnsafeBytes { utf8Bytes in
+      let notActuallyMutableBytes: UnsafeMutableRawBufferPointer = .init(mutating: utf8Bytes)
+      notActuallyMutableBytes.withMemoryRebound(to: Bytef.self, body)
+    }
+  }
 }
