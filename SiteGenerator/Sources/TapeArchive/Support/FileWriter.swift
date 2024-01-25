@@ -1,5 +1,6 @@
 import NIOFileSystem
 
+/// Type for writing data to file
 final class FileWriter {
   init(
     fileSystem: FileSystem,

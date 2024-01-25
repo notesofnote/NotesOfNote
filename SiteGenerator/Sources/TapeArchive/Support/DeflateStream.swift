@@ -1,6 +1,9 @@
 import CZlib
 
+/// A type which deflates a stream of input data
 final class DeflateStream {
+
+  /// Creates a new `DeflateStream`
   init() {
     c = z_stream()
 
@@ -17,29 +20,74 @@ final class DeflateStream {
       fatalError()
     }
   }
+  deinit {
+    let result = deflateEnd(&c)
+    switch result {
+    case Z_OK:
+      break
+    case Z_DATA_ERROR:
+      /// The stream was deallocated while there was pending data still in the stream.
+      /// We consider this OK, but it may make sense to put a breakpoint here during debigging.
+      break
+    case Z_STREAM_ERROR:
+      /// We don't expect the stream to be in an incosistent state
+      assertionFailure()
+    default:
+      /// This is an unexpected error code
+      fatalError()
+    }
+  }
 
+  /// Type describing how the stream should flush data
   enum FlushBehavior {
-    case noFlush
+
+    /// Only flush data if needed (corresponds to `Z_NO_FLUSH`)
+    case noForcedFlush
+
+    /// Flushes as much as possible.
+    /// This does not guarantee that the stream end will be reached in a single `deflate`.
+    /// If `deflate` returns an outcome where `isStreamEnd` is `false`, the caller should call `deflate` again with the `.finish` behavior.
     case finish
 
     fileprivate var flag: Int32 {
       switch self {
-      case .noFlush: Z_NO_FLUSH
+      case .noForcedFlush: Z_NO_FLUSH
       case .finish: Z_FINISH
       }
     }
   }
 
+  /// The outcome of the `deflate` operation.
   struct DeflateOutcome {
+    /// The number of bytes written to the output buffer
     let bytesWritten: Int
+
+    /// The number of bytes read from the input buffer
     let bytesRead: Int
+
+    /// Whether or not the stream is complete.
+    /// Will only be set to `true` if `FlushBehavior.finish` is used.
     let isStreamEnd: Bool
   }
 
+  /// Deflates some input into the output buffer.
+  ///
+  /// - Parameters:
+  ///   - input:
+  ///       The buffer to pull data from.
+  ///       If `nil`, no data will be read.
+  ///       This can be useful in conjunction with certain flush behaviors.
+  ///   - output:
+  ///       The output buffer to write data to.
+  ///   - flushBehavior:
+  ///       A value controlling how the stream flushes data.
+  ///       See `FlushBehavior` documenation for specifics.
+  /// - Returns:
+  ///     A `DeflateOutcome` value describing what the stream accomplished.
   func deflate(
     _ input: UnsafeMutableRawBufferPointer? = nil,
     into output: UnsafeMutableRawBufferPointer,
-    flushBehavior: FlushBehavior = .noFlush
+    flushBehavior: FlushBehavior = .noForcedFlush
   ) -> DeflateOutcome {
     assert(c.next_in == nil)
     assert(c.avail_in == 0)
