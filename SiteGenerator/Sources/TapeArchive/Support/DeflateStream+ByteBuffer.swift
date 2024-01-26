@@ -11,8 +11,13 @@ extension DeflateStream {
         deflate(readableBytes, into: writableBytes, flushBehavior: flushBehavior)
       }
     }
+
+    precondition(outcome.bytesRead <= inputBuffer.readableBytes)
     inputBuffer.moveReaderIndex(forwardBy: outcome.bytesRead)
+
+    precondition(outcome.bytesWritten <= outputBuffer.writableBytes)
     outputBuffer.moveWriterIndex(forwardBy: outcome.bytesWritten)
+
     return outcome
   }
 }
