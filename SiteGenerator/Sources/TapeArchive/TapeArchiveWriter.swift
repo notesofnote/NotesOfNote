@@ -4,6 +4,12 @@ import SystemPackage
 
 import struct Foundation.Date
 
+#if canImport(Darwin)
+  import Darwin
+#elseif canImport(Glibc)
+  import Glibc
+#endif
+
 public struct TapeArchiveWriter: ~Copyable {
   public init(
     filePath: FilePath,
@@ -26,27 +32,38 @@ public struct TapeArchiveWriter: ~Copyable {
       modificationDate: archiveModificationDate)
   }
 
-  public mutating func write(_ file: File) async throws {
-    let buffers = [
-      [file.generateHeader(bufferAllocator: bufferAllocator)],
-      file.chunks,
-      [bufferAllocator.buffer(repeating: 0, count: file.requiredPaddingByteCount)],
-    ].joined()
+  /// Writes any pending bytes to the output file.
+  public consuming func finish() async throws {
+    /// Write two consecutive zero-filled (512 byte) records per the tar spec
+    try await write(bufferAllocator.buffer(repeating: 0, count: 512 * 2))
 
-    for buffer in buffers {
-
-      /// `outputBuffer` should be reset every iteration
-      precondition(outputBuffer.writerIndex == 0)
-      defer { outputBuffer.clear() }
-
+    while true {
+      let outcome = try await writeWrittenOutput { [deflateStream] outputBuffer in
+        deflateStream.deflate(into: &outputBuffer, flushBehavior: .finish)
+      }
+      if outcome.isStreamEnd {
+        break
+      }
     }
+
+    try await archiveWriter.flush()
+  }
+
+  /// Write a file to this archive.
+  /// Does not guarantee all necessary byte will be written to the output file unless `finish` is called.
+  public mutating func write(_ file: File) async throws {
+    try await write(file.generateHeader(bufferAllocator: bufferAllocator))
+    for chunk in file.chunks {
+      try await write(chunk)
+    }
+    try await write(bufferAllocator.buffer(repeating: 0, count: file.requiredPaddingByteCount))
   }
 
   public struct File {
-    init(
+    public init(
       name: String,
       mode: UInt32,
-      owner: ProcessOwner = ProcessOwner(),
+      owner: Owner = .process,
       lastModificationDate: Date = Date()
     ) {
       precondition(name.utf8.count < 100)
@@ -54,6 +71,23 @@ public struct TapeArchiveWriter: ~Copyable {
       self.mode = mode
       self.owner = owner
       self.lastModificationDate = lastModificationDate
+    }
+
+    public struct Owner {
+      public static var process: Owner {
+        let groupID = getgid()
+        return Owner(
+          id: getuid(),
+          groupID: groupID,
+          name: String(cString: getlogin()),
+          groupName: String(cString: getgrgid(groupID).pointee.gr_name)
+        )
+      }
+
+      let id: UInt32
+      let groupID: UInt32
+      let name: String
+      let groupName: String
     }
 
     fileprivate func generateHeader(bufferAllocator: ByteBufferAllocator) -> ByteBuffer {
@@ -123,7 +157,7 @@ public struct TapeArchiveWriter: ~Copyable {
 
     fileprivate let name: String
     fileprivate let mode: UInt32
-    fileprivate let owner: ProcessOwner
+    fileprivate let owner: Owner
     fileprivate let lastModificationDate: Date
     fileprivate var chunks: [ByteBuffer] = []
     fileprivate var fileSize: Int {
@@ -145,11 +179,37 @@ public struct TapeArchiveWriter: ~Copyable {
     }
   }
 
+  /// Write the readable bytes of `buffer` to the archive.
+  private mutating func write(_ buffer: ByteBuffer) async throws {
+    var mutableBuffer = buffer
+    while mutableBuffer.readableBytes > 0 {
+      try await writeWrittenOutput { [deflateStream] outputBuffer in
+        let outcome = deflateStream.deflate(
+          &mutableBuffer, into: &outputBuffer, flushBehavior: .flushWhenNeeded)
+        precondition(outcome.bytesRead > 0 || outcome.bytesWritten > 0)
+      }
+    }
+  }
+
+  private mutating func writeWrittenOutput<T>(
+    _ writeToOutput: (inout ByteBuffer) throws -> T
+  ) async throws -> T {
+    /// output buffer must be cleared after use
+    precondition(outputBuffer.writerIndex == 0)
+    defer { outputBuffer.clear() }
+
+    let result = try writeToOutput(&outputBuffer)
+
+    try await archiveWriter.write(contentsOf: outputBuffer.readableBytesView)
+
+    return result
+  }
+
   private let deflateStream: DeflateStream
   private let archiveWriter: FileWriter
+  private var outputBuffer: ByteBuffer
 
   private let bufferAllocator: ByteBufferAllocator
-  private var outputBuffer: ByteBuffer
   private static let defaultInputBufferCapacity = 16 /* kiB */ * 1024
   private static let defaultOutputBufferCapacity = 128 /* kiB */ * 1024
 }

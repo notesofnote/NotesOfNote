@@ -95,7 +95,7 @@ final class DeflateStream {
   /// Deflates some input into the output buffer.
   ///
   /// - Parameters:
-  ///   - input:
+  ///   - optionalInput:
   ///       The buffer to pull data from.
   ///       If `nil`, no data will be read.
   ///       This can be useful in conjunction with certain flush behaviors.
@@ -107,7 +107,7 @@ final class DeflateStream {
   /// - Returns:
   ///     A `DeflateOutcome` value describing what the stream accomplished.
   func deflate(
-    _ input: UnsafeMutableRawBufferPointer? = nil,
+    _ optionalInput: UnsafeMutableRawBufferPointer? = nil,
     into output: UnsafeMutableRawBufferPointer,
     flushBehavior: FlushBehavior = .flushWhenNeeded
   ) -> DeflateOutcome {
@@ -123,7 +123,15 @@ final class DeflateStream {
       c.avail_out = 0
     }
 
-    return (input ?? Self.emptyBuffer).withMemoryRebound(to: Bytef.self) { inputBytes in
+    let input: UnsafeMutableRawBufferPointer
+    if let optionalInput = optionalInput {
+      input = optionalInput
+    } else {
+      /// This only makes sense when forcing a flush
+      precondition(flushBehavior != .flushWhenNeeded)
+      input = Self.emptyBuffer
+    }
+    return input.withMemoryRebound(to: Bytef.self) { inputBytes in
       output.withMemoryRebound(to: Bytef.self) { outputBytes in
         c.next_in = inputBytes.baseAddress!
         c.avail_in = UInt32(inputBytes.count)
