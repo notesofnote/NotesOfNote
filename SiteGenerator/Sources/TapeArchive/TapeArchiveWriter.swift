@@ -46,7 +46,7 @@ public struct TapeArchiveWriter: ~Copyable {
       }
     }
 
-    try await archiveWriter.flush()
+    try await archiveWriter.close()
   }
 
   /// Write a file to this archive.
@@ -75,19 +75,54 @@ public struct TapeArchiveWriter: ~Copyable {
 
     public struct Owner {
       public static var process: Owner {
+        let id = getuid()
         let groupID = getgid()
+
+        /// Get user name
+        let name = withUnsafeTemporaryAllocation(
+          of: UInt8.self,
+          capacity: sysconf(Int32(_SC_GETPW_R_SIZE_MAX))
+        ) { buffer in
+          var pw = passwd()
+          var pwRef: UnsafeMutablePointer<passwd>?
+          let result = getpwuid_r(
+            id, &pw, buffer.baseAddress!, buffer.count,
+            &pwRef)
+          guard result == 0 else { fatalError() }
+          return String(cString: pwRef!.pointee.pw_name)
+        }
+
+        /// Get group name
+        let groupName = withUnsafeTemporaryAllocation(
+          of: UInt8.self,
+          capacity: sysconf(Int32(_SC_GETGR_R_SIZE_MAX))
+        ) { buffer in
+          var grp = group()
+          var grpRef: UnsafeMutablePointer<group>?
+          let result = getgrgid_r(groupID, &grp, buffer.baseAddress!, buffer.count, &grpRef)
+          guard result == 0 else { fatalError() }
+          return String(cString: grp.gr_name)
+        }
+
         return Owner(
-          id: getuid(),
+          id: id,
           groupID: groupID,
-          name: String(cString: getlogin()),
-          groupName: String(cString: getgrgid(groupID).pointee.gr_name)
-        )
+          name: name,
+          groupName: groupName)
       }
 
       let id: UInt32
       let groupID: UInt32
       let name: String
       let groupName: String
+    }
+
+    public mutating func append(_ string: String) {
+      chunks.append(chunkAllocator.buffer(string: string))
+    }
+
+    public mutating func append(_ bytes: some Sequence<UInt8>) {
+      chunks.append(chunkAllocator.buffer(bytes: bytes))
     }
 
     fileprivate func generateHeader(bufferAllocator: ByteBufferAllocator) -> ByteBuffer {
@@ -106,7 +141,7 @@ public struct TapeArchiveWriter: ~Copyable {
         let string = String(value, radix: 8) + " \0"
         let utf8 = string.utf8
         precondition(utf8.count < fieldWidth)
-        header.writeRepeatingByte(0, count: fieldWidth - utf8.count)
+        header.writeRepeatingByte(0x30 /* ASCII zero */, count: fieldWidth - utf8.count)
         header.writeBytes(utf8)
       }
       /// Write file size and modification time
@@ -114,8 +149,8 @@ public struct TapeArchiveWriter: ~Copyable {
         let fieldWidth = 12
         let string = String(value, radix: 8) + " "
         let utf8 = string.utf8
-        precondition(utf8.count < fieldWidth)
-        header.writeRepeatingByte(0, count: fieldWidth - utf8.count)
+        precondition(utf8.count <= fieldWidth)
+        header.writeRepeatingByte(0x30 /* ASCII zero */, count: fieldWidth - utf8.count)
         header.writeBytes(utf8)
       }
       /// Write temporary checksum (will be updated at end)
@@ -139,7 +174,7 @@ public struct TapeArchiveWriter: ~Copyable {
       header.writeString("000000 \0")
       /// Write empty field ("Filename Prefix" is unused)
       header.writeRepeatingByte(0, count: 155)
-      precondition(header.readerIndex == 500)
+      precondition(header.writerIndex == 500)
       /// Write 0s until the end of the header
       header.writeRepeatingByte(0, count: header.writableBytes)
       /// Generate a checksum and write it into the appropriate location
@@ -149,7 +184,7 @@ public struct TapeArchiveWriter: ~Copyable {
         let string = String(checksum, radix: 8) + "\0 "
         let paddedString = String(repeating: "0", count: fieldWidth - string.count) + string
         let utf8 = paddedString.utf8
-        precondition(utf8.count < fieldWidth)
+        precondition(utf8.count <= fieldWidth)
         header.setBytes(utf8, at: 148)
       }
       return header
@@ -159,6 +194,7 @@ public struct TapeArchiveWriter: ~Copyable {
     fileprivate let mode: UInt32
     fileprivate let owner: Owner
     fileprivate let lastModificationDate: Date
+    fileprivate let chunkAllocator = ByteBufferAllocator()
     fileprivate var chunks: [ByteBuffer] = []
     fileprivate var fileSize: Int {
       chunks.map(\.readableBytes).reduce(0, +)

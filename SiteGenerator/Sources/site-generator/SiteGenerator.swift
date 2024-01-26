@@ -15,6 +15,6 @@ struct GenerateSite: AsyncParsableCommand {
   var outputFile: FilePath
 
   func run() async throws {
-
+    try await Foo.generateSite(at: outputFile)
   }
 }

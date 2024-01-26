@@ -147,6 +147,9 @@ final class DeflateStream {
         let result = CZlib.deflate(&c, flushBehavior.flag)
         switch result {
         case Z_STREAM_END where flushBehavior == .finish, Z_OK:
+          if result == Z_STREAM_END {
+            print(String(c.adler, radix: 16))
+          }
           return DeflateOutcome(
             bytesWritten: c.next_out - outputBytes.baseAddress!,
             bytesRead: c.next_in - inputBytes.baseAddress!,
@@ -187,6 +190,8 @@ final class DeflateStream {
       if let modificationDate = modificationDate {
         c.time = .init(modificationDate.timeIntervalSince1970)
       }
+
+      c.os = 3 /* Unix (determined experimentally) */
 
       self.c = c
     }

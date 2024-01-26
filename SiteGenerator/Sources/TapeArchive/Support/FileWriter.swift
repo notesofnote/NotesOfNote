@@ -11,28 +11,24 @@ final class FileWriter {
     _fileHandle =
       try await fileSystem
       .openFile(forWritingAt: filePath, options: options)
-    _bufferedWriter = _fileHandle.bufferedWriter()
   }
 
   /// Writes a sequence of bytes, potentially to a buffer.
   /// May flush the buffer to the output file if needed.
   @discardableResult
   func write(contentsOf sequence: some Sequence<UInt8>) async throws -> Int64 {
-    try await withProperties { _, writer in
-      try await writer.write(contentsOf: sequence)
-    }
-  }
-
-  /// Flushes the write buffer to the output file
-  func flush() async throws {
-    try await withProperties { _, writer in
-      try await writer.flush()
+    try await withFileHandle { handle in
+      let bytesWritten = try await handle.write(
+        contentsOf: sequence,
+        toAbsoluteOffset: fileOffset)
+      fileOffset += bytesWritten
+      return bytesWritten
     }
   }
 
   /// Closes the managed file handle
   func close() async throws {
-    try await withProperties { handle, _ in
+    try await withFileHandle { handle in
       try await handle.close()
     }
     isOpen = false
@@ -40,7 +36,7 @@ final class FileWriter {
 
   deinit {
     if isOpen {
-      Task<Void, Never> {
+      Task<Void, Never> { [_fileHandle] in
         do {
           try await _fileHandle.close()
         } catch {
@@ -50,8 +46,8 @@ final class FileWriter {
     }
   }
 
-  private func withProperties<T>(
-    _ body: (inout WriteFileHandle, inout BufferedWriter) async throws -> T
+  private func withFileHandle<T>(
+    _ body: (inout WriteFileHandle) async throws -> T
   )
     async rethrows
     -> T
@@ -59,7 +55,7 @@ final class FileWriter {
     precondition(isOpen)
 
     do {
-      return try await body(&_fileHandle, &_bufferedWriter)
+      return try await body(&_fileHandle)
     } catch {
       do {
         isOpen = false
@@ -75,8 +71,8 @@ final class FileWriter {
   private typealias BufferedWriter = NIOFileSystem.BufferedWriter<WriteFileHandle>
 
   private var isOpen = true
+  private var fileOffset: Int64 = 0
 
-  /// The following properties should only be accessed via the `withProperties` method.
-  private var _bufferedWriter: BufferedWriter
+  /// The file handle should only be accessed via the `withFileHandle` method.
   private var _fileHandle: WriteFileHandle
 }

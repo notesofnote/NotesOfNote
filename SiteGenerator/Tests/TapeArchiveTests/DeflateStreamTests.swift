@@ -4,7 +4,7 @@ import XCTest
 @testable import TapeArchive
 
 final class DeflateStreamTests: XCTestCase {
-  func testDeflate() {
+  func testDeflateAPI() {
     let stream: DeflateStream = .init()
 
     let inflatedString: StaticString = "Hello, World! Hello, World!"
