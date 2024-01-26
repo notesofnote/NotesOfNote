@@ -1,34 +1,49 @@
 import NIOCore
 import NIOFileSystem
+import SystemPackage
 
 import struct Foundation.Date
 
+// For getuid and getgid
+#if canImport(Darwin)
+  import Darwin
+#elseif canImport(Glibc)
+  import Glibc
+#endif
+
 public struct TapeArchiveWriter: ~Copyable {
   public init(
-    path: FilePath,
+    filePath: FilePath,
     replaceExistingFile: Bool,
-    archiveName: String,
-    modificationDate: Date = Date()
+    archiveFileName: String,
+    archiveModificationDate: Date = Date()
   ) async throws {
     self.deflateStream = DeflateStream()
     self.archiveWriter = try await FileWriter(
       fileSystem: .shared,
-      path: path,
+      filePath: filePath,
       options: .newFile(
         replaceExisting: replaceExistingFile))
     self.outputBuffer =
-      bufferAllocator
+      ByteBufferAllocator()
       .buffer(capacity: Self.outputBufferCapacity)
-
     deflateStream.setHeader(
-      fileName: archiveName,
-      modificationDate: .distantFuture)
+      fileName: archiveFileName,
+      modificationDate: archiveModificationDate)
+  }
+
+  public func writeFile(
+    fileName: String,
+    fileMode: Int,
+    ownerID: UInt32 = getuid(),
+    groupID: UInt32 = getgid()
+  ) async throws {
+
   }
 
   private let deflateStream: DeflateStream
   private let archiveWriter: FileWriter
 
-  private let bufferAllocator: ByteBufferAllocator = .init()
   private var outputBuffer: ByteBuffer
   private static let outputBufferCapacity = 128 * 1024
 }

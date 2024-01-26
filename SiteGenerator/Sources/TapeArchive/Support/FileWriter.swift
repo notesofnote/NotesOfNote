@@ -4,13 +4,13 @@ import NIOFileSystem
 final class FileWriter {
   init(
     fileSystem: FileSystem,
-    path: FilePath,
+    filePath: FilePath,
     options: OpenOptions.Write
   ) async throws {
     /// Set up the file handle and writer that will write to the output file.
     _fileHandle =
       try await fileSystem
-      .openFile(forWritingAt: path, options: options)
+      .openFile(forWritingAt: filePath, options: options)
     _bufferedWriter = _fileHandle.bufferedWriter()
   }
 

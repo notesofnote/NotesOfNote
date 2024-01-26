@@ -73,7 +73,9 @@ final class DeflateStreamTests: XCTestCase {
           into: output,
           flushBehavior: .finish)
 
+        /// Value determined experimentally
         XCTAssertEqual(result.bytesWritten, 27)
+
         XCTAssertTrue(result.isStreamEnd)
       }
     }

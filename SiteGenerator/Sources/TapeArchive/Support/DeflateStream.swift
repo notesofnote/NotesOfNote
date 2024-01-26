@@ -64,16 +64,16 @@ final class DeflateStream {
   enum FlushBehavior {
 
     /// Only flush data if needed (corresponds to `Z_NO_FLUSH`)
-    case noForcedFlush
+    case flushWhenNeeded
 
-    /// Flushes as much as possible.
+    /// Flushes any remaining data and any additional data needed to complete the stream.
     /// This does not guarantee that the stream end will be reached in a single `deflate`.
     /// If `deflate` returns an outcome where `isStreamEnd` is `false`, the caller should call `deflate` again with the `.finish` behavior.
     case finish
 
     fileprivate var flag: Int32 {
       switch self {
-      case .noForcedFlush: Z_NO_FLUSH
+      case .flushWhenNeeded: Z_NO_FLUSH
       case .finish: Z_FINISH
       }
     }
@@ -109,7 +109,7 @@ final class DeflateStream {
   func deflate(
     _ input: UnsafeMutableRawBufferPointer? = nil,
     into output: UnsafeMutableRawBufferPointer,
-    flushBehavior: FlushBehavior = .noForcedFlush
+    flushBehavior: FlushBehavior = .flushWhenNeeded
   ) -> DeflateOutcome {
     assert(c.next_in == nil)
     assert(c.avail_in == 0)

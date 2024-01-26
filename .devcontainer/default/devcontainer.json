@@ -1,0 +1,33 @@
+// Reference: https://containers.dev/implementors/json_reference/
+{
+  "name": "NotesOfNote",
+  "dockerFile": "Dockerfile",
+
+  // Allow the processes in the container to attach a debugger
+  "capAdd": [ "SYS_PTRACE" ],
+  "securityOpt": [ "seccomp=unconfined" ],
+
+  "mounts": [
+    // Use named volumes for the build products for optimal performance (https://code.visualstudio.com/remote/advancedcontainers/improve-performance?WT.mc_id=javascript-14373-yolasors#_use-a-targeted-named-volume)
+    "source=${localWorkspaceFolderBasename}-build,target=${containerWorkspaceFolder}/SiteGenerator/.build,type=volume"
+  ],
+  "remoteEnv": {
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
+    "EDITOR": "code --wait",
+    "GIT_EDITOR": "code --wait"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "sswg.swift-lang",
+        "vadimcn.vscode-lldb",
+        "vknabel.vscode-apple-swift-format"
+      ],
+      "settings": {
+        /// Swift LLDB Settings
+        "lldb.library": "/usr/lib/liblldb.so",
+        "lldb.launch.expressions": "native"
+      }
+    }
+  }
+}
