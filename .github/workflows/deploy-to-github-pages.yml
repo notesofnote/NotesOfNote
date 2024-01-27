@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Build and Deploy to GitHub Pages
 
 on:
   workflow_dispatch:
@@ -8,8 +8,7 @@ on:
       - main
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  build:
     runs-on: ubuntu-latest
     
     strategy:
@@ -46,4 +45,19 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-    
+  deploy:
+    needs: build
+
+    permissions: 
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
