@@ -8,7 +8,7 @@ public enum Foo {
     var archiveWriter = try await TapeArchiveWriter(
       filePath: filePath,
       replaceExistingFile: true,
-      archiveFileName: "output.bin")
+      archiveFileName: "static-site.tar")
     var index: TapeArchiveWriter.File = .init(
       name: "index.html",
       mode: 0o644)
