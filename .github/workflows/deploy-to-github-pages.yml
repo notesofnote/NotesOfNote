@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        devcontainer-name: ["default"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Set up devcontainer
+      - name: Make devcontainer '${{ matrix.devcontainer-name }}' singular
+        run: .devcontainer/devcontainer-helper --make-singular ${{ matrix.devcontainer-name }}
+      - name: Initialize devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: |
+            echo "Devcontainer Initialized."
+            
+      - name: Initialize devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: |
+            swift run --package-path SiteGenerator notes-of-note-site-generator generate-site --output-file static-site.tar
+
+      - name: Upload artifact
+        id: upload-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-pages
+          path: static-site.tar
+          retention-days: 1
+          if-no-files-found: error
+
+    
