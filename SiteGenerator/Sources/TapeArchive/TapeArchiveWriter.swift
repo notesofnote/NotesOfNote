@@ -1,6 +1,4 @@
 import NIOCore
-import NIOFileSystem
-import SystemPackage
 
 import struct Foundation.Date
 
@@ -10,53 +8,37 @@ import struct Foundation.Date
   import Glibc
 #endif
 
-public struct TapeArchiveWriter: ~Copyable {
-  public init(
-    filePath: FilePath,
-    replaceExistingFile: Bool,
-    archiveFileName: String,
-    archiveModificationDate: Date = Date()
+public struct TapeArchiveWriter {
+  init(
+    destination: some ByteBufferConsumer
   ) async throws {
-    deflateStream = DeflateStream()
-    archiveWriter = try await FileWriter(
-      fileSystem: .shared,
-      filePath: filePath,
-      options: .newFile(
-        replaceExisting: replaceExistingFile))
+    self.destination = destination
     bufferAllocator = ByteBufferAllocator()
-    outputBuffer =
-      bufferAllocator
-      .buffer(capacity: Self.defaultOutputBufferCapacity)
-    deflateStream.setHeader(
-      fileName: archiveFileName,
-      modificationDate: archiveModificationDate)
   }
 
   /// Writes any pending bytes to the output file.
-  public consuming func finish() async throws {
+  public mutating func finish() async throws {
     /// Write two consecutive zero-filled (512 byte) records per the tar spec
-    try await write(bufferAllocator.buffer(repeating: 0, count: 512 * 2))
-
-    while true {
-      let outcome = try await writeWrittenOutput { [deflateStream] outputBuffer in
-        deflateStream.deflate(into: &outputBuffer, flushBehavior: .finish)
-      }
-      if outcome.isStreamEnd {
-        break
-      }
-    }
-
-    try await archiveWriter.close()
+    try await destination.consumeReadableBytes(
+      of: bufferAllocator.buffer(
+        repeating: 0,
+        count: 512 * 2))
+    try await destination.finishConsumingBytes()
   }
 
   /// Write a file to this archive.
   /// Does not guarantee all necessary byte will be written to the output file unless `finish` is called.
   public mutating func write(_ file: File) async throws {
-    try await write(file.generateHeader(bufferAllocator: bufferAllocator))
+    try await destination.consumeReadableBytes(
+      of: file.generateHeader(
+        bufferAllocator: bufferAllocator))
     for chunk in file.chunks {
-      try await write(chunk)
+      try await destination.consumeReadableBytes(of: chunk)
     }
-    try await write(bufferAllocator.buffer(repeating: 0, count: file.requiredPaddingByteCount))
+    try await destination.consumeReadableBytes(
+      of: bufferAllocator.buffer(
+        repeating: 0,
+        count: file.requiredPaddingByteCount))
   }
 
   public struct File {
@@ -215,37 +197,6 @@ public struct TapeArchiveWriter: ~Copyable {
     }
   }
 
-  /// Write the readable bytes of `buffer` to the archive.
-  private mutating func write(_ buffer: ByteBuffer) async throws {
-    var mutableBuffer = buffer
-    while mutableBuffer.readableBytes > 0 {
-      try await writeWrittenOutput { [deflateStream] outputBuffer in
-        let outcome = deflateStream.deflate(
-          &mutableBuffer, into: &outputBuffer, flushBehavior: .flushWhenNeeded)
-        precondition(outcome.bytesRead > 0 || outcome.bytesWritten > 0)
-      }
-    }
-  }
-
-  private mutating func writeWrittenOutput<T>(
-    _ writeToOutput: (inout ByteBuffer) throws -> T
-  ) async throws -> T {
-    /// output buffer must be cleared after use
-    precondition(outputBuffer.writerIndex == 0)
-    defer { outputBuffer.clear() }
-
-    let result = try writeToOutput(&outputBuffer)
-
-    try await archiveWriter.write(contentsOf: outputBuffer.readableBytesView)
-
-    return result
-  }
-
-  private let deflateStream: DeflateStream
-  private let archiveWriter: FileWriter
-  private var outputBuffer: ByteBuffer
-
   private let bufferAllocator: ByteBufferAllocator
-  private static let defaultInputBufferCapacity = 16 /* kiB */ * 1024
-  private static let defaultOutputBufferCapacity = 128 /* kiB */ * 1024
+  private var destination: any ByteBufferConsumer
 }

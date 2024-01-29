@@ -1,5 +1,7 @@
 import NIOFileSystem
 
+import struct NIOCore.ByteBuffer
+
 /// Type for writing data to file
 final class FileWriter {
   init(
@@ -68,11 +70,20 @@ final class FileWriter {
     }
   }
 
-  private typealias BufferedWriter = NIOFileSystem.BufferedWriter<WriteFileHandle>
-
   private var isOpen = true
   private var fileOffset: Int64 = 0
 
   /// The file handle should only be accessed via the `withFileHandle` method.
   private var _fileHandle: WriteFileHandle
+}
+
+// MARK: - ByteBufferConsumer
+
+extension FileWriter: ByteBufferConsumer {
+  func consumeReadableBytes(of buffer: ByteBuffer) async throws {
+    try await write(contentsOf: buffer.readableBytesView)
+  }
+  func finishConsumingBytes() async throws {
+    try await close()
+  }
 }
