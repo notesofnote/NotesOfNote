@@ -7,10 +7,9 @@ public enum Foo {
   public static func generateSite(at filePath: FilePath) async throws {
     var archiveWriter = try await TapeArchiveWriter(
       filePath: filePath,
-      replaceExistingFile: true,
-      archiveFileName: "static-site.tar")
+      replaceExistingFile: true)
     var index: TapeArchiveWriter.File = .init(
-      name: "index.html",
+      name: "artifact/index.html",
       mode: 0o644)
     index.append("Hello, World!<br/>This site is generated using Swift!")
     try await archiveWriter.write(index)

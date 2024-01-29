@@ -5,9 +5,7 @@ import struct Foundation.Date
 extension TapeArchiveWriter {
   public init(
     filePath: FilePath,
-    replaceExistingFile: Bool,
-    archiveFileName: String,
-    archiveModificationDate: Date = Date()
+    replaceExistingFile: Bool
   ) async throws {
     try await self.init(
       destination: FileWriter(
