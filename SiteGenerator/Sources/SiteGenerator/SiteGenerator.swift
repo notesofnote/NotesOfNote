@@ -9,7 +9,7 @@ public enum Foo {
       filePath: filePath,
       replaceExistingFile: true)
     var index: TapeArchiveWriter.File = .init(
-      name: "artifact/index.html",
+      name: "./index.html",
       mode: 0o644)
     index.append("Hello, World!<br/>This site is generated using Swift!")
     try await archiveWriter.write(index)
